@@ -1,0 +1,1 @@
+UPDATE public.business_profiles SET enable_feedback_filter = true WHERE slug = 'card';

@@ -1,0 +1,1 @@
+CREATE POLICY "Public can delete reviews" ON public.positive_reviews FOR DELETE USING (true);

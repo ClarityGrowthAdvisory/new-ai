@@ -1,0 +1,1 @@
+UPDATE public.business_profiles SET enable_feedback_filter = true, enable_predefined_reviews = true WHERE slug = 'card';

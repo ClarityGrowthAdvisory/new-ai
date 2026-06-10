@@ -1,0 +1,1 @@
+ALTER TABLE public.business_profiles ADD COLUMN bg_image_url text;

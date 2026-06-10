@@ -1,0 +1,1 @@
+CREATE POLICY "Admins can view all page view logs" ON public.page_view_logs FOR SELECT USING (public.is_admin(auth.uid()));
