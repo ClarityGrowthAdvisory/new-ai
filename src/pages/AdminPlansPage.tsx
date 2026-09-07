@@ -43,19 +43,15 @@ interface Plan {
   created_at: string;
 }
 
-const validityOptions = [
-  { label: "7 Days (Free Trial)", value: 7 },
-  { label: "1 Month", value: 30 },
-  { label: "6 Months", value: 180 },
-  { label: "1 Year", value: 365 },
-  { label: "2 Years", value: 730 },
-  { label: "5 Years", value: 1825 },
-];
+import {
+  UNLIMITED_DAYS,
+  DurationUnit,
+  daysToDuration,
+  durationToDays,
+  validityLabel,
+} from "@/lib/planDuration";
 
-const getValidityLabel = (days: number) => {
-  const match = validityOptions.find((v) => v.value === days);
-  return match ? match.label : `${days} days`;
-};
+const getValidityLabel = validityLabel;
 
 const emptyForm = {
   name: "",
@@ -73,6 +69,9 @@ export default function AdminPlansPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [durAmount, setDurAmount] = useState(1);
+  const [durUnit, setDurUnit] = useState<DurationUnit>("months");
+  const [unlimited, setUnlimited] = useState(false);
 
   const load = async () => {
     const { data } = await supabase
@@ -90,6 +89,9 @@ export default function AdminPlansPage() {
   const openCreate = () => {
     setEditingId(null);
     setForm(emptyForm);
+    setDurAmount(1);
+    setDurUnit("months");
+    setUnlimited(false);
     setDialogOpen(true);
   };
 
@@ -102,6 +104,11 @@ export default function AdminPlansPage() {
       validity_days: plan.validity_days,
       is_active: plan.is_active,
     });
+    const isUnlimited = plan.validity_days >= UNLIMITED_DAYS;
+    setUnlimited(isUnlimited);
+    const d = daysToDuration(isUnlimited ? 30 : plan.validity_days);
+    setDurAmount(d.amount);
+    setDurUnit(d.unit);
     setDialogOpen(true);
   };
 
@@ -267,39 +274,72 @@ export default function AdminPlansPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Price (₹)</Label>
+            <div className="space-y-2">
+              <Label>Price (₹)</Label>
+              <Input
+                type="number"
+                min={0}
+                value={form.price}
+                onChange={(e) =>
+                  setForm({ ...form, price: parseFloat(e.target.value) || 0 })
+                }
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Validity</Label>
+              <div className="flex items-center gap-3">
                 <Input
                   type="number"
-                  min={0}
-                  value={form.price}
-                  onChange={(e) =>
-                    setForm({ ...form, price: parseFloat(e.target.value) || 0 })
-                  }
+                  min={1}
+                  className="w-24"
+                  disabled={unlimited}
+                  value={unlimited ? "" : durAmount}
+                  onChange={(e) => {
+                    const amt = parseInt(e.target.value) || 1;
+                    setDurAmount(amt);
+                    setForm({ ...form, validity_days: durationToDays(amt, durUnit) });
+                  }}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label>Validity</Label>
                 <Select
-                  value={String(form.validity_days)}
-                  onValueChange={(val) =>
-                    setForm({ ...form, validity_days: parseInt(val) })
-                  }
+                  value={durUnit}
+                  disabled={unlimited}
+                  onValueChange={(val) => {
+                    const unit = val as DurationUnit;
+                    setDurUnit(unit);
+                    setForm({ ...form, validity_days: durationToDays(durAmount, unit) });
+                  }}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="flex-1">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {validityOptions.map((opt) => (
-                      <SelectItem key={opt.value} value={String(opt.value)}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
+                    <SelectItem value="days">Days</SelectItem>
+                    <SelectItem value="months">Months</SelectItem>
+                    <SelectItem value="years">Years</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+              <div className="flex items-center justify-between rounded-lg border px-4 py-2">
+                <p className="text-sm">Unlimited (lifetime)</p>
+                <Switch
+                  checked={unlimited}
+                  onCheckedChange={(checked) => {
+                    setUnlimited(checked);
+                    setForm({
+                      ...form,
+                      validity_days: checked
+                        ? UNLIMITED_DAYS
+                        : durationToDays(durAmount, durUnit),
+                    });
+                  }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Clients get access for {validityLabel(form.validity_days)}.
+              </p>
             </div>
+
 
             <div className="flex items-center justify-between rounded-lg border px-4 py-3">
               <div>

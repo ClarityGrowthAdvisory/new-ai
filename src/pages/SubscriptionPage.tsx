@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
+import { validityLabel, priceSuffix, UNLIMITED_DAYS } from "@/lib/planDuration";
 
 declare global {
   interface Window {
@@ -95,6 +96,30 @@ export default function SubscriptionPage() {
     ? new Date(userPlan.expires_at) < new Date()
     : true;
 
+  const refreshUserPlan = async () => {
+    const { data } = await supabase
+      .from("user_plans")
+      .select("*, plan:plans(name, description)")
+      .eq("user_id", user!.id)
+      .maybeSingle();
+    setUserPlan(data);
+  };
+
+  const handleFreePlan = async (planId: string) => {
+    if (!user) return;
+    setPaying(true);
+    const res = await supabase.functions.invoke("razorpay", {
+      body: { action: "activate-free", plan_id: planId },
+    });
+    if (res.data?.success) {
+      toast({ title: "Plan activated", description: "Your plan is now active" });
+      await refreshUserPlan();
+    } else {
+      toast({ title: "Error", description: "Could not activate plan", variant: "destructive" });
+    }
+    setPaying(false);
+  };
+
   const handlePayment = async (planId: string) => {
     if (!user || !scriptLoaded) return;
 
@@ -106,7 +131,7 @@ export default function SubscriptionPage() {
         body: {
           action: "create-order",
           plan_id: planId,
-          is_renewal: false,
+          is_renewal: !!userPlan,
         },
       });
 
@@ -148,13 +173,7 @@ export default function SubscriptionPage() {
               description: "Your plan has been activated",
             });
 
-            const { data } = await supabase
-              .from("user_plans")
-              .select("*, plan:plans(name, description)")
-              .eq("user_id", user.id)
-              .maybeSingle();
-
-            setUserPlan(data);
+            await refreshUserPlan();
           } else {
             toast({
               title: "Verification Failed",
@@ -226,7 +245,8 @@ export default function SubscriptionPage() {
 
             <p className="flex items-center text-sm text-muted-foreground mt-2">
               <Calendar className="h-4 w-4 mr-2" />
-              Expires {format(new Date(userPlan.expires_at), "dd MMM yyyy")}
+              {isExpired ? "Expired on" : "Expires on"}{" "}
+              {format(new Date(userPlan.expires_at), "dd/MM/yyyy")}
             </p>
           </>
         ) : (
@@ -250,8 +270,16 @@ export default function SubscriptionPage() {
 
           <CardContent className="space-y-6">
             <div>
-              <span className="text-4xl font-bold">₹{plan.price}</span>
-              <span className="text-muted-foreground"> /year</span>
+              <span className="text-4xl font-bold">
+                {plan.price === 0 ? "Free" : `₹${plan.price}`}
+              </span>
+              <span className="text-muted-foreground">
+                {" "}
+                {priceSuffix(plan.validity_days)}
+              </span>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Validity: {validityLabel(plan.validity_days)}
+              </p>
             </div>
 
             <ul className="space-y-2 text-sm">
@@ -273,15 +301,21 @@ export default function SubscriptionPage() {
 
             <Button
               className="w-full"
-              onClick={() => handlePayment(plan.id)}
-              disabled={paying || !scriptLoaded}
+              onClick={() =>
+                plan.price === 0
+                  ? handleFreePlan(plan.id)
+                  : handlePayment(plan.id)
+              }
+              disabled={paying || (plan.price > 0 && !scriptLoaded)}
             >
               {paying ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <CreditCard className="h-4 w-4 mr-2" />
               )}
-              Buy - ₹{plan.price}
+              {plan.price === 0
+                ? "Activate Free Plan"
+                : `${userPlan ? "Renew" : "Buy"} - ₹${plan.price}`}
             </Button>
           </CardContent>
         </Card>

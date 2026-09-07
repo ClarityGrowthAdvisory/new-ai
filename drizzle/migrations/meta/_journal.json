@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1788787983422,
+      "tag": "0000_gate_public_business_by_active_plan",
+      "breakpoints": true
+    }
+  ]
+}

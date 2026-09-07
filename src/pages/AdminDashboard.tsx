@@ -13,6 +13,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { UserPlus, KeyRound, MoreVertical, CreditCard, ShieldCheck, ShieldOff, Search, Download, ChevronLeft, ChevronRight, Trash2, Users, Link2 } from "lucide-react";
+import { validityLabel } from "@/lib/planDuration";
+
 
 interface Plan { id: string; name: string; validity_days: number; }
 interface UserPlan { user_id: string; plan_id: string | null; expires_at: string; }
@@ -40,7 +42,12 @@ export default function AdminDashboard() {
   const [passwordDialog, setPasswordDialog] = useState<{ open: boolean; userId: string; name: string }>({ open: false, userId: "", name: "" });
   const [newPassword, setNewPassword] = useState("");
   const [updatingPassword, setUpdatingPassword] = useState(false);
+  const [planDialog, setPlanDialog] = useState<{ open: boolean; user: UserData | null }>({ open: false, user: null });
+  const [selectedPlanId, setSelectedPlanId] = useState<string>("none");
+  const [customExpiry, setCustomExpiry] = useState("");
+  const [savingPlan, setSavingPlan] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+
   const [expiryFilter, setExpiryFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 10;
@@ -117,22 +124,62 @@ export default function AdminDashboard() {
     }
   };
 
-  const assignPlan = async (user: UserData, planId: string) => {
-    if (planId === "none") {
-      await supabase.from("user_plans").delete().eq("user_id", user.user_id);
-      toast({ title: "Plan removed" });
-      await load();
-      return;
-    }
-    const plan = plans.find((p) => p.id === planId);
-    if (!plan) return;
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + plan.validity_days);
-    await supabase.from("user_plans").delete().eq("user_id", user.user_id);
-    const { error } = await supabase.from("user_plans").insert({ user_id: user.user_id, plan_id: planId, expires_at: expiresAt.toISOString() });
-    if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
-    else { toast({ title: `Plan "${plan.name}" assigned` }); await load(); }
+  const openPlanDialog = (u: UserData) => {
+    setPlanDialog({ open: true, user: u });
+    setSelectedPlanId(u.plan_id || "none");
+    setCustomExpiry(u.plan_expires ? new Date(u.plan_expires).toISOString().slice(0, 10) : "");
   };
+
+  const computeExpiry = (planId: string, extend: boolean, user: UserData | null) => {
+    const plan = plans.find((p) => p.id === planId);
+    if (!plan) return null;
+    const now = new Date();
+    const base =
+      extend && user?.plan_expires && new Date(user.plan_expires) > now
+        ? new Date(user.plan_expires)
+        : now;
+    const d = new Date(base);
+    d.setDate(d.getDate() + (plan.validity_days || 30));
+    return d;
+  };
+
+  const savePlan = async (mode: "set" | "extend") => {
+    const u = planDialog.user;
+    if (!u) return;
+    setSavingPlan(true);
+    try {
+      if (selectedPlanId === "none") {
+        await supabase.from("user_plans").delete().eq("user_id", u.user_id);
+        toast({ title: "Plan removed" });
+      } else {
+        const plan = plans.find((p) => p.id === selectedPlanId);
+        if (!plan) return;
+        const auto = computeExpiry(selectedPlanId, mode === "extend", u);
+        const expiresAt =
+          mode === "set" && customExpiry ? new Date(`${customExpiry}T23:59:59`) : auto!;
+        await supabase.from("user_plans").delete().eq("user_id", u.user_id);
+        const { error } = await supabase.from("user_plans").insert({
+          user_id: u.user_id,
+          plan_id: selectedPlanId,
+          expires_at: expiresAt.toISOString(),
+        });
+        if (error) {
+          toast({ title: "Error", description: error.message, variant: "destructive" });
+          setSavingPlan(false);
+          return;
+        }
+        toast({
+          title: mode === "extend" ? `Plan extended` : `Plan "${plan.name}" updated`,
+          description: `Valid until ${expiresAt.toLocaleDateString("en-GB")}`,
+        });
+      }
+      setPlanDialog({ open: false, user: null });
+      await load();
+    } finally {
+      setSavingPlan(false);
+    }
+  };
+
 
   const handleCreateUser = async () => {
     if (!newUser.email || !newUser.password) {
@@ -291,17 +338,10 @@ export default function AdminDashboard() {
                         <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreVertical className="h-4 w-4" /></Button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-48">
                           <DropdownMenuLabel className="text-xs text-muted-foreground">Manage</DropdownMenuLabel>
-                          <DropdownMenuSub>
-                            <DropdownMenuSubTrigger><CreditCard className="h-4 w-4 mr-2" /> Assign Plan</DropdownMenuSubTrigger>
-                            <DropdownMenuSubContent>
-                              <DropdownMenuItem onClick={() => assignPlan(u, "none")}>No Plan</DropdownMenuItem>
-                              {plans.map((p) => (
-                                <DropdownMenuItem key={p.id} onClick={() => assignPlan(u, p.id)} className={u.plan_id === p.id ? "bg-accent" : ""}>
-                                  {p.name}{u.plan_id === p.id && <span className="ml-auto text-xs">✓</span>}
-                                </DropdownMenuItem>
-                              ))}
-                            </DropdownMenuSubContent>
-                          </DropdownMenuSub>
+                          <DropdownMenuItem onClick={() => openPlanDialog(u)}>
+                            <CreditCard className="h-4 w-4 mr-2" /> Change Plan
+                          </DropdownMenuItem>
+
                           <DropdownMenuSeparator />
                           <DropdownMenuItem onClick={() => toggleActive(u)}>
                             {u.is_active ? <><ShieldOff className="h-4 w-4 mr-2" /> Disable</> : <><ShieldCheck className="h-4 w-4 mr-2" /> Enable</>}
@@ -334,6 +374,60 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      <Dialog open={planDialog.open} onOpenChange={(open) => setPlanDialog({ ...planDialog, open })}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Change Plan</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            For <strong>{planDialog.user?.name || planDialog.user?.email}</strong>
+            {planDialog.user?.plan_expires && (
+              <> — currently {isPlanExpired(planDialog.user.plan_expires) ? "expired on" : "valid until"}{" "}
+              {new Date(planDialog.user.plan_expires).toLocaleDateString("en-GB")}</>
+            )}
+          </p>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label>Plan</Label>
+              <Select
+                value={selectedPlanId}
+                onValueChange={(v) => {
+                  setSelectedPlanId(v);
+                  const d = computeExpiry(v, false, planDialog.user);
+                  setCustomExpiry(d ? d.toISOString().slice(0, 10) : "");
+                }}
+              >
+                <SelectTrigger><SelectValue placeholder="Select plan" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No Plan</SelectItem>
+                  {plans.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name} · {validityLabel(p.validity_days)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {selectedPlanId !== "none" && (
+              <div className="space-y-2">
+                <Label>Expiry date</Label>
+                <Input type="date" value={customExpiry} onChange={(e) => setCustomExpiry(e.target.value)} />
+                <p className="text-xs text-muted-foreground">Auto-filled from the plan validity — change it for a custom end date.</p>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Button className="flex-1" onClick={() => savePlan("set")} disabled={savingPlan}>
+                {savingPlan ? "Saving..." : "Save"}
+              </Button>
+              {selectedPlanId !== "none" && (
+                <Button variant="outline" className="flex-1" onClick={() => savePlan("extend")} disabled={savingPlan}>
+                  Extend
+                </Button>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
 
       <Dialog open={passwordDialog.open} onOpenChange={(open) => setPasswordDialog({ ...passwordDialog, open })}>
         <DialogContent className="max-w-sm">

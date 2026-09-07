@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Link2, MessageSquareText, MessageSquareWarning, Users, LogOut, CreditCard, Menu, Moon, Sun, BarChart3 } from "lucide-react";
+import { LayoutDashboard, Link2, MessageSquareText, MessageSquareWarning, Users, LogOut, CreditCard, Menu, Moon, Sun, BarChart3, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
@@ -20,6 +20,7 @@ const adminLinks = [
   { to: "/admin", label: "Users", icon: Users },
   { to: "/admin/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/admin/plans", label: "Plans", icon: CreditCard },
+  { to: "/admin/settings", label: "Payment Settings", icon: Settings },
 ];
 
 function useDarkMode() {

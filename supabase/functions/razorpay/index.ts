@@ -37,10 +37,32 @@ Deno.serve(async (req) => {
 
   const { action, ...body } = await req.json();
 
-  const RAZORPAY_KEY_ID = Deno.env.get("RAZORPAY_KEY_ID");
-  const RAZORPAY_KEY_SECRET = Deno.env.get("RAZORPAY_KEY_SECRET");
+  const adminClient = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+  );
 
-  if (!RAZORPAY_KEY_ID || !RAZORPAY_KEY_SECRET) {
+  // Load Razorpay credentials dynamically from payment_settings, fall back to env
+  let RAZORPAY_KEY_ID = Deno.env.get("RAZORPAY_KEY_ID") || "";
+  let RAZORPAY_KEY_SECRET = Deno.env.get("RAZORPAY_KEY_SECRET") || "";
+  const { data: settings } = await adminClient
+    .from("payment_settings")
+    .select("razorpay_key_id, razorpay_key_secret, is_active")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (settings && action !== "activate-free") {
+    if (settings.is_active === false) {
+      return new Response(
+        JSON.stringify({ error: "Payments are currently disabled" }),
+        { status: 503, headers: corsHeaders }
+      );
+    }
+    if (settings.razorpay_key_id) RAZORPAY_KEY_ID = settings.razorpay_key_id;
+    if (settings.razorpay_key_secret) RAZORPAY_KEY_SECRET = settings.razorpay_key_secret;
+  }
+
+  if (action !== "activate-free" && (!RAZORPAY_KEY_ID || !RAZORPAY_KEY_SECRET)) {
     return new Response(
       JSON.stringify({ error: "Payment gateway not configured" }),
       { status: 500, headers: corsHeaders }
@@ -48,17 +70,63 @@ Deno.serve(async (req) => {
   }
 
   try {
+    if (action === "activate-free") {
+      const { plan_id } = body;
+      const { data: freePlan } = await adminClient
+        .from("plans")
+        .select("id, price, validity_days, is_active")
+        .eq("id", plan_id)
+        .maybeSingle();
+
+      if (!freePlan || !freePlan.is_active || Number(freePlan.price) > 0) {
+        return new Response(JSON.stringify({ error: "Plan is not free" }), {
+          status: 400,
+          headers: corsHeaders,
+        });
+      }
+
+      const { data: existingFree } = await adminClient
+        .from("user_plans")
+        .select("id, expires_at")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      const baseFree =
+        existingFree?.expires_at && new Date(existingFree.expires_at) > new Date()
+          ? new Date(existingFree.expires_at)
+          : new Date();
+      const freeExpires = new Date(baseFree);
+      freeExpires.setDate(freeExpires.getDate() + (freePlan.validity_days || 30));
+
+      if (existingFree) {
+        await adminClient
+          .from("user_plans")
+          .update({
+            plan_id: freePlan.id,
+            expires_at: freeExpires.toISOString(),
+            assigned_at: new Date().toISOString(),
+          })
+          .eq("id", existingFree.id);
+      } else {
+        await adminClient.from("user_plans").insert({
+          user_id: userId,
+          plan_id: freePlan.id,
+          expires_at: freeExpires.toISOString(),
+        });
+      }
+
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (action === "create-order") {
       const { plan_id, is_renewal } = body;
 
       // Verify plan exists and get its price
-      const adminClient = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-      );
       const { data: plan } = await adminClient
         .from("plans")
-        .select("id, name, price")
+        .select("id, name, price, validity_days")
         .eq("id", plan_id)
         .single();
 
@@ -139,10 +207,8 @@ Deno.serve(async (req) => {
         });
       }
 
-      const adminClient = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-      );
+
+
 
       // Update payment record
       await adminClient
@@ -163,16 +229,27 @@ Deno.serve(async (req) => {
         .single();
 
       if (payment) {
-        // Assign plan - 365 days
-        const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + 365);
+        // Plan duration comes from the plan itself
+        const { data: paidPlan } = await adminClient
+          .from("plans")
+          .select("validity_days")
+          .eq("id", payment.plan_id)
+          .maybeSingle();
+        const validityDays = paidPlan?.validity_days || 30;
 
-        // Upsert user_plan
+        // Upsert user_plan (renewals extend from the current expiry if still active)
         const { data: existing } = await adminClient
           .from("user_plans")
-          .select("id")
+          .select("id, expires_at")
           .eq("user_id", payment.user_id)
           .maybeSingle();
+
+        const base =
+          existing?.expires_at && new Date(existing.expires_at) > new Date()
+            ? new Date(existing.expires_at)
+            : new Date();
+        const expiresAt = new Date(base);
+        expiresAt.setDate(expiresAt.getDate() + validityDays);
 
         if (existing) {
           await adminClient

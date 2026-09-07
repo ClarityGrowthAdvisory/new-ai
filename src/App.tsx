@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import PlanGate from "@/components/PlanGate";
 
 // Lazy-loaded pages
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
@@ -19,6 +20,7 @@ const AnalyticsPage = lazy(() => import("@/pages/AnalyticsPage"));
 const AdminDashboard = lazy(() => import("@/pages/AdminDashboard"));
 const AdminPlansPage = lazy(() => import("@/pages/AdminPlansPage"));
 const AdminAnalyticsPage = lazy(() => import("@/pages/AdminAnalyticsPage"));
+const AdminSettingsPage = lazy(() => import("@/pages/AdminSettingsPage"));
 const PublicReviewPage = lazy(() => import("@/pages/PublicReviewPage"));
 const Index = lazy(() => import("@/pages/Index"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
@@ -58,8 +60,8 @@ const App = () => (
               {/* Client routes */}
               <Route element={<ProtectedRoute allowedRoles={["client"]} />}>
                 <Route path="/dashboard" element={<ClientDashboard />} />
-                <Route path="/dashboard/review-link" element={<ReviewLinkSetup />} />
-                <Route path="/dashboard/positive-reviews" element={<PositiveReviewsPage />} />
+                <Route path="/dashboard/review-link" element={<PlanGate><ReviewLinkSetup /></PlanGate>} />
+                <Route path="/dashboard/positive-reviews" element={<PlanGate><PositiveReviewsPage /></PlanGate>} />
                 <Route path="/dashboard/negative-feedback" element={<NegativeFeedbackPage />} />
                 <Route path="/dashboard/subscription" element={<SubscriptionPage />} />
                 <Route path="/dashboard/analytics" element={<AnalyticsPage />} />
@@ -70,6 +72,7 @@ const App = () => (
                 <Route path="/admin" element={<AdminDashboard />} />
                 <Route path="/admin/plans" element={<AdminPlansPage />} />
                 <Route path="/admin/analytics" element={<AdminAnalyticsPage />} />
+                <Route path="/admin/settings" element={<AdminSettingsPage />} />
               </Route>
 
               <Route path="*" element={<NotFound />} />
